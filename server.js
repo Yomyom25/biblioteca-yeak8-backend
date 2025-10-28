@@ -47,7 +47,6 @@ const authRouter = express.Router();
 authRouter.post("/register", async (req, res) => {
     const { matricula, correo, password } = req.body;
 
-    // ... (Validaciones y lógica de registro)
     if (!matricula || !correo || !password) {
         return res
             .status(400)
@@ -70,7 +69,7 @@ authRouter.post("/register", async (req, res) => {
         // 2. Hashear la contraseña
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // 3. Insertar nuevo usuario (contraseña con Ñ)
+        // 3. Insertar nuevo usuario
         const role = "Estudiante";
         const multa = "ninguna";
 
@@ -79,12 +78,10 @@ authRouter.post("/register", async (req, res) => {
             [matricula, correo, hashedPassword, role, multa]
         );
 
-        return res
-            .status(201)
-            .json({
-                message: "Registro exitoso. Puedes iniciar sesión.",
-                userId: result.insertId,
-            });
+        return res.status(201).json({
+            message: "Registro exitoso. Puedes iniciar sesión.",
+            userId: result.insertId,
+        });
     } catch (error) {
         console.error("Error en el registro:", error);
         return res
@@ -93,7 +90,7 @@ authRouter.post("/register", async (req, res) => {
     }
 });
 
-// [POST] /api/auth/login <--- LÓGICA DE SEGURIDAD (Cooldown 5 min y Pass Temp 10 min)
+// [POST] /api/auth/login
 authRouter.post("/login", async (req, res) => {
     const { matricula, password } = req.body;
     const LIMITE_INTENTOS = 3;
@@ -103,7 +100,6 @@ authRouter.post("/login", async (req, res) => {
     try {
         // 1. Buscar usuario por Matrícula O Correo
         const [users] = await dbPool.query(
-            // Seleccionar también la nueva columna para el chequeo
             "SELECT * FROM usuarios WHERE matricula = ? OR correo = ?",
             [matricula, matricula]
         );
@@ -116,16 +112,15 @@ authRouter.post("/login", async (req, res) => {
 
         let user = users[0];
 
-        // 2. CONTROL DE COOLDOWN DE 5 MINUTOS (AISLADO)
+        // 2. CONTROL DE COOLDOWN DE 5 MINUTOS
         if (user.intentos_fallidos >= LIMITE_INTENTOS && user.tiempo_bloqueo) {
             const cooldownStartTime = new Date(user.tiempo_bloqueo);
-            // Calcular el tiempo de expiración (tiempo_bloqueo + 5 minutos)
             cooldownStartTime.setMinutes(
                 cooldownStartTime.getMinutes() + COOLDOWN_MINUTOS
             );
 
             if (now < cooldownStartTime) {
-                // Bloqueo ACTIVO (403 para el frontend)
+                // Bloqueo ACTIVO
                 const tiempoRestanteMs = cooldownStartTime.getTime() - now.getTime();
                 const tiempoRestanteSeg = Math.ceil(tiempoRestanteMs / 1000);
 
@@ -147,9 +142,24 @@ authRouter.post("/login", async (req, res) => {
         const passwordMatch = await bcrypt.compare(password, user.contraseña);
 
         if (passwordMatch) {
-            // LOGIN EXITOSO
+            // Verificar si es una contraseña temporal expirada
+            if (user.expiracion_temp_pass) {
+                const tempPassExpires = new Date(user.expiracion_temp_pass);
+                if (now > tempPassExpires) {
+                    // La contraseña temporal expiró - BLOQUEAR LOGIN
+                    await dbPool.query(
+                        "UPDATE usuarios SET expiracion_temp_pass = NULL WHERE id_usuario = ?",
+                        [user.id_usuario]
+                    );
+                    return res.status(401).json({
+                        message:
+                            "La contraseña temporal ha expirado. Solicita una nueva recuperación.",
+                    });
+                }
+            }
 
-            // 4. LIMPIAR TODAS las variables de seguridad (Cooldown Y Contraseña Temporal)
+            // LOGIN EXITOSO
+            // Limpiar TODAS las variables de seguridad
             if (
                 user.intentos_fallidos > 0 ||
                 user.tiempo_bloqueo ||
@@ -174,19 +184,17 @@ authRouter.post("/login", async (req, res) => {
             });
         } else {
             // CONTRASEÑA INCORRECTA
-
-            // 5. Manejar intentos fallidos (solo si no está ya en Cooldown)
+            // Manejar intentos fallidos
             if (user.intentos_fallidos < LIMITE_INTENTOS) {
                 const newAttempts = user.intentos_fallidos + 1;
-                // Si se supera el límite, establecer `tiempo_bloqueo` para el cooldown de 5 min.
                 const tiempoBloqueo = newAttempts >= LIMITE_INTENTOS ? now : null;
 
-                // Si la contraseña es temporal y falló, se verifica si expiró para limpiar el campo
+                // Si la contraseña es temporal y falló, verificar si expiró
                 let expiracionTempPass = user.expiracion_temp_pass;
                 if (expiracionTempPass) {
                     const tempPassExpires = new Date(expiracionTempPass);
                     if (now > tempPassExpires) {
-                        expiracionTempPass = null; // Contraseña temporal expirada
+                        expiracionTempPass = null;
                     }
                 }
 
@@ -196,13 +204,11 @@ authRouter.post("/login", async (req, res) => {
                 );
 
                 if (newAttempts >= LIMITE_INTENTOS) {
-                    // Bloqueado a partir de este intento
                     return res.status(401).json({
                         message:
                             "Límite de intentos excedido. Su cuenta ha sido bloqueada temporalmente.",
                     });
                 } else {
-                    // Falla antes del límite
                     const remainingAttempts = LIMITE_INTENTOS - newAttempts;
                     return res.status(401).json({
                         message: `Contraseña incorrecta. Le quedan ${remainingAttempts} intentos.`,
@@ -222,7 +228,7 @@ authRouter.post("/login", async (req, res) => {
     }
 });
 
-// [POST] /api/auth/forgot-password <--- LÓGICA DE RECUPERACIÓN (10 MIN)
+// [POST] /api/auth/forgot-password
 authRouter.post("/forgot-password", async (req, res) => {
     const { correo, matricula } = req.body;
 
@@ -246,12 +252,9 @@ authRouter.post("/forgot-password", async (req, res) => {
         }
 
         if (users.length === 0) {
-            // 404 para que el frontend (useAuth.js) maneje el error
-            return res
-                .status(404)
-                .json({
-                    message: "Este correo electrónico no está registrado en el sistema.",
-                });
+            return res.status(404).json({
+                message: "Este correo electrónico no está registrado en el sistema.",
+            });
         }
 
         // 2. Generar contraseña temporal
@@ -259,26 +262,29 @@ authRouter.post("/forgot-password", async (req, res) => {
 
         // 3. Guardar contraseña temporal usando el correo del usuario encontrado
         const userEmail = users[0].correo;
-        await recoveryService.saveTemporaryPassword(dbPool, userEmail, tempPassword);
+        await recoveryService.saveTemporaryPassword(
+            dbPool,
+            userEmail,
+            tempPassword
+        );
 
-        // 4. Enviar correo 
-        const sent = await recoveryService.sendRecoveryEmail(userEmail, tempPassword);
+        // 4. Enviar correo
+        const sent = await recoveryService.sendRecoveryEmail(
+            userEmail,
+            tempPassword
+        );
 
         if (!sent) {
-            return res
-                .status(500)
-                .json({
-                    message:
-                        "No se pudo enviar el correo de recuperación. Revise la configuración SMTP.",
-                });
+            return res.status(500).json({
+                message:
+                    "No se pudo enviar el correo de recuperación. Revise la configuración SMTP.",
+            });
         }
 
-        return res
-            .status(200)
-            .json({
-                message:
-                    "Contraseña temporal generada y enviada correctamente al correo (válida por 10 minutos).",
-            });
+        return res.status(200).json({
+            message:
+                "Contraseña temporal generada y enviada correctamente al correo (válida por 10 minutos).",
+        });
     } catch (error) {
         console.error("Error en recuperación de contraseña:", error);
         return res.status(500).json({ message: "Error interno del servidor." });
