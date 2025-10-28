@@ -1,15 +1,15 @@
-const express = require('express');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const mysql = require('mysql2/promise');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-require('dotenv').config();
-const recoveryService = require('./passwordRecoveryService');
+const express = require("express");
+const cors = require("cors");
+const bodyParser = require("body-parser");
+const mysql = require("mysql2/promise");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+require("dotenv").config();
+const recoveryService = require("./passwordRecoveryService");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const SECRET_KEY = process.env.JWT_SECRET || 'CLAVE_SECRETA_POR_DEFECTO';
+const SECRET_KEY = process.env.JWT_SECRET || "CLAVE_SECRETA_POR_DEFECTO";
 
 // --- Configuración de Conexión a MySQL (usando .env) ---
 const dbConfig = {
@@ -34,60 +34,67 @@ async function connectToDb() {
         app.listen(PORT, () => {
             console.log(`\n✅ Backend corriendo en: http://localhost:${PORT}`);
         });
-
     } catch (err) {
-        console.error('❌ Error al conectar a la base de datos:', err.message);
+        console.error("❌ Error al conectar a la base de datos:", err.message);
         process.exit(1);
     }
 }
-
 
 // --- Router de Autenticación ---
 const authRouter = express.Router();
 
 // [POST] /api/auth/register
-authRouter.post('/register', async (req, res) => {
+authRouter.post("/register", async (req, res) => {
     const { matricula, correo, password } = req.body;
 
     // ... (Validaciones y lógica de registro)
     if (!matricula || !correo || !password) {
-        return res.status(400).json({ message: 'Todos los campos son obligatorios.' });
+        return res
+            .status(400)
+            .json({ message: "Todos los campos son obligatorios." });
     }
 
     try {
         // 1. Verificar si el usuario ya existe
         const [existingUsers] = await dbPool.query(
-            'SELECT id_usuario FROM usuarios WHERE matricula = ? OR correo = ?',
+            "SELECT id_usuario FROM usuarios WHERE matricula = ? OR correo = ?",
             [matricula, correo]
         );
 
         if (existingUsers.length > 0) {
-            return res.status(409).json({ message: 'La matrícula o el correo ya están registrados.' });
+            return res
+                .status(409)
+                .json({ message: "La matrícula o el correo ya están registrados." });
         }
 
         // 2. Hashear la contraseña
         const hashedPassword = await bcrypt.hash(password, 10);
 
         // 3. Insertar nuevo usuario (contraseña con Ñ)
-        const role = 'Estudiante';
-        const multa = 'ninguna';
+        const role = "Estudiante";
+        const multa = "ninguna";
 
         const [result] = await dbPool.query(
-            'INSERT INTO usuarios (matricula, correo, contraseña, rol, multa) VALUES (?, ?, ?, ?, ?)',
+            "INSERT INTO usuarios (matricula, correo, contraseña, rol, multa) VALUES (?, ?, ?, ?, ?)",
             [matricula, correo, hashedPassword, role, multa]
         );
 
-        return res.status(201).json({ message: 'Registro exitoso. Puedes iniciar sesión.', userId: result.insertId });
-
+        return res
+            .status(201)
+            .json({
+                message: "Registro exitoso. Puedes iniciar sesión.",
+                userId: result.insertId,
+            });
     } catch (error) {
-        console.error('Error en el registro:', error);
-        return res.status(500).json({ message: 'Error interno del servidor durante el registro.' });
+        console.error("Error en el registro:", error);
+        return res
+            .status(500)
+            .json({ message: "Error interno del servidor durante el registro." });
     }
 });
 
-
 // [POST] /api/auth/login <--- LÓGICA DE SEGURIDAD (Cooldown 5 min y Pass Temp 10 min)
-authRouter.post('/login', async (req, res) => {
+authRouter.post("/login", async (req, res) => {
     const { matricula, password } = req.body;
     const LIMITE_INTENTOS = 3;
     const COOLDOWN_MINUTOS = 5;
@@ -97,12 +104,14 @@ authRouter.post('/login', async (req, res) => {
         // 1. Buscar usuario por Matrícula O Correo
         const [users] = await dbPool.query(
             // Seleccionar también la nueva columna para el chequeo
-            'SELECT * FROM usuarios WHERE matricula = ? OR correo = ?',
+            "SELECT * FROM usuarios WHERE matricula = ? OR correo = ?",
             [matricula, matricula]
         );
 
         if (users.length === 0) {
-            return res.status(401).json({ message: 'Matrícula, correo o contraseña incorrectos.' });
+            return res
+                .status(401)
+                .json({ message: "Matrícula, correo o contraseña incorrectos." });
         }
 
         let user = users[0];
@@ -111,7 +120,9 @@ authRouter.post('/login', async (req, res) => {
         if (user.intentos_fallidos >= LIMITE_INTENTOS && user.tiempo_bloqueo) {
             const cooldownStartTime = new Date(user.tiempo_bloqueo);
             // Calcular el tiempo de expiración (tiempo_bloqueo + 5 minutos)
-            cooldownStartTime.setMinutes(cooldownStartTime.getMinutes() + COOLDOWN_MINUTOS);
+            cooldownStartTime.setMinutes(
+                cooldownStartTime.getMinutes() + COOLDOWN_MINUTOS
+            );
 
             if (now < cooldownStartTime) {
                 // Bloqueo ACTIVO (403 para el frontend)
@@ -119,12 +130,12 @@ authRouter.post('/login', async (req, res) => {
                 const tiempoRestanteSeg = Math.ceil(tiempoRestanteMs / 1000);
 
                 return res.status(403).json({
-                    message: `Su cuenta ha sido bloqueada temporalmente. Intente de nuevo en ${tiempoRestanteSeg} segundos.`
+                    message: `Su cuenta ha sido bloqueada temporalmente. Intente de nuevo en ${tiempoRestanteSeg} segundos.`,
                 });
             } else {
                 // Cooldown expiró, reinicia intentos fallidos y tiempo_bloqueo
                 await dbPool.query(
-                    'UPDATE usuarios SET intentos_fallidos = 0, tiempo_bloqueo = NULL WHERE id_usuario = ?',
+                    "UPDATE usuarios SET intentos_fallidos = 0, tiempo_bloqueo = NULL WHERE id_usuario = ?",
                     [user.id_usuario]
                 );
                 user.intentos_fallidos = 0;
@@ -139,9 +150,13 @@ authRouter.post('/login', async (req, res) => {
             // LOGIN EXITOSO
 
             // 4. LIMPIAR TODAS las variables de seguridad (Cooldown Y Contraseña Temporal)
-            if (user.intentos_fallidos > 0 || user.tiempo_bloqueo || user.expiracion_temp_pass) {
+            if (
+                user.intentos_fallidos > 0 ||
+                user.tiempo_bloqueo ||
+                user.expiracion_temp_pass
+            ) {
                 await dbPool.query(
-                    'UPDATE usuarios SET intentos_fallidos = 0, tiempo_bloqueo = NULL, expiracion_temp_pass = NULL WHERE id_usuario = ?',
+                    "UPDATE usuarios SET intentos_fallidos = 0, tiempo_bloqueo = NULL, expiracion_temp_pass = NULL WHERE id_usuario = ?",
                     [user.id_usuario]
                 );
             }
@@ -150,20 +165,18 @@ authRouter.post('/login', async (req, res) => {
             const token = jwt.sign(
                 { id: user.id_usuario, rol: user.rol, matricula: user.matricula },
                 SECRET_KEY,
-                { expiresIn: '1h' }
+                { expiresIn: "1h" }
             );
 
             return res.status(200).json({
-                message: 'Inicio de sesión exitoso.',
-                token: token
+                message: "Inicio de sesión exitoso.",
+                token: token,
             });
-
         } else {
             // CONTRASEÑA INCORRECTA
 
             // 5. Manejar intentos fallidos (solo si no está ya en Cooldown)
             if (user.intentos_fallidos < LIMITE_INTENTOS) {
-
                 const newAttempts = user.intentos_fallidos + 1;
                 // Si se supera el límite, establecer `tiempo_bloqueo` para el cooldown de 5 min.
                 const tiempoBloqueo = newAttempts >= LIMITE_INTENTOS ? now : null;
@@ -178,76 +191,102 @@ authRouter.post('/login', async (req, res) => {
                 }
 
                 await dbPool.query(
-                    'UPDATE usuarios SET intentos_fallidos = ?, tiempo_bloqueo = ?, expiracion_temp_pass = ? WHERE id_usuario = ?',
+                    "UPDATE usuarios SET intentos_fallidos = ?, tiempo_bloqueo = ?, expiracion_temp_pass = ? WHERE id_usuario = ?",
                     [newAttempts, tiempoBloqueo, expiracionTempPass, user.id_usuario]
                 );
 
                 if (newAttempts >= LIMITE_INTENTOS) {
                     // Bloqueado a partir de este intento
                     return res.status(401).json({
-                        message: 'Límite de intentos excedido. Su cuenta ha sido bloqueada temporalmente.'
+                        message:
+                            "Límite de intentos excedido. Su cuenta ha sido bloqueada temporalmente.",
                     });
                 } else {
                     // Falla antes del límite
                     const remainingAttempts = LIMITE_INTENTOS - newAttempts;
                     return res.status(401).json({
-                        message: `Contraseña incorrecta. Le quedan ${remainingAttempts} intentos.`
+                        message: `Contraseña incorrecta. Le quedan ${remainingAttempts} intentos.`,
                     });
                 }
             } else {
                 return res.status(401).json({
-                    message: 'Matrícula, correo o contraseña incorrectos.'
+                    message: "Matrícula, correo o contraseña incorrectos.",
                 });
             }
         }
-
     } catch (error) {
-        console.error('Error en el login:', error);
-        return res.status(500).json({ message: 'Error interno del servidor durante el login.' });
+        console.error("Error en el login:", error);
+        return res
+            .status(500)
+            .json({ message: "Error interno del servidor durante el login." });
     }
 });
 
-
 // [POST] /api/auth/forgot-password <--- LÓGICA DE RECUPERACIÓN (10 MIN)
-authRouter.post('/forgot-password', async (req, res) => {
-    const { correo } = req.body;
+authRouter.post("/forgot-password", async (req, res) => {
+    const { correo, matricula } = req.body;
 
     try {
-        // 1. Validar que el usuario exista
-        const [users] = await dbPool.query(
-            'SELECT id_usuario FROM usuarios WHERE correo = ?',
-            [correo]
-        );
+        // 1. Validar que el usuario exista (por correo O matrícula)
+        let users;
+        if (correo) {
+            [users] = await dbPool.query(
+                "SELECT id_usuario, correo FROM usuarios WHERE correo = ?",
+                [correo]
+            );
+        } else if (matricula) {
+            [users] = await dbPool.query(
+                "SELECT id_usuario, correo FROM usuarios WHERE matricula = ?",
+                [matricula]
+            );
+        } else {
+            return res
+                .status(400)
+                .json({ message: "Debes proporcionar correo o matrícula." });
+        }
 
         if (users.length === 0) {
             // 404 para que el frontend (useAuth.js) maneje el error
-            return res.status(404).json({ message: 'Este correo electrónico no está registrado en el sistema.' });
+            return res
+                .status(404)
+                .json({
+                    message: "Este correo electrónico no está registrado en el sistema.",
+                });
         }
 
         // 2. Generar contraseña temporal
         const tempPassword = recoveryService.generateTemporaryPassword();
 
-        // 3. Guardar contraseña temporal, establecer expiración (10 min) y limpiar bloqueo
-        await recoveryService.saveTemporaryPassword(dbPool, correo, tempPassword);
+        // 3. Guardar contraseña temporal usando el correo del usuario encontrado
+        const userEmail = users[0].correo;
+        await recoveryService.saveTemporaryPassword(dbPool, userEmail, tempPassword);
 
         // 4. Enviar correo 
-        const sent = await recoveryService.sendRecoveryEmail(correo, tempPassword);
+        const sent = await recoveryService.sendRecoveryEmail(userEmail, tempPassword);
 
         if (!sent) {
-            return res.status(500).json({ message: 'No se pudo enviar el correo de recuperación. Revise la configuración SMTP.' });
+            return res
+                .status(500)
+                .json({
+                    message:
+                        "No se pudo enviar el correo de recuperación. Revise la configuración SMTP.",
+                });
         }
 
-        return res.status(200).json({ message: 'Contraseña temporal generada y enviada correctamente al correo (válida por 10 minutos).' });
-
+        return res
+            .status(200)
+            .json({
+                message:
+                    "Contraseña temporal generada y enviada correctamente al correo (válida por 10 minutos).",
+            });
     } catch (error) {
-        console.error('Error en recuperación de contraseña:', error);
-        return res.status(500).json({ message: 'Error interno del servidor.' });
+        console.error("Error en recuperación de contraseña:", error);
+        return res.status(500).json({ message: "Error interno del servidor." });
     }
 });
 
-
 // --- Conexión de Rutas ---
-app.use('/api/auth', authRouter);
+app.use("/api/auth", authRouter);
 
 // --- Iniciar Conexión y Servidor ---
 connectToDb();
