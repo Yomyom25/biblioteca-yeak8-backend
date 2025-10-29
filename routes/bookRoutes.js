@@ -106,7 +106,7 @@ module.exports = (dbPool) => {
                 imagen: r.link_imagen
                     ? `${host}/${r.link_imagen.replace(/^\/+/, "")}`
                     : null,
-                ano: r.ano,
+                ano: r.fecha_publicacion ? new Date(r.fecha_publicacion).getFullYear() : 'N/A',
             }));
 
             res.json(data);

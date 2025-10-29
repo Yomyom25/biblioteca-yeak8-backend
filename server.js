@@ -4,6 +4,7 @@ const bodyParser = require("body-parser");
 const mysql = require("mysql2/promise");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const path = require('path'); 
 require("dotenv").config();
 const fs = require("fs");
 const recoveryService = require("./passwordRecoveryService");
@@ -12,6 +13,7 @@ const bookRoutes = require("./routes/bookRoutes"); // 👈 Se importará y se us
 const app = express();
 const PORT = process.env.PORT || 5000;
 const SECRET_KEY = process.env.JWT_SECRET || "CLAVE_SECRETA_POR_DEFECTO";
+
 
 // --- Configuración de Conexión a MySQL ---
 const dbConfig = {
@@ -32,8 +34,8 @@ if (!fs.existsSync(uploadDir)) {
     console.log(`✅ Directorio de carga '${uploadDir}' creado.`);
 }
 
-// --- Servir archivos estáticos (portadas / PDFs) ---
-app.use('/uploads', express.static('uploads'));
+// Carpeta uploads accesible públicamente
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ==========================================================
 // 🔐 RUTAS DE AUTENTICACIÓN
@@ -41,8 +43,8 @@ app.use('/uploads', express.static('uploads'));
 const authRouter = express.Router();
 
 // Parámetros para bloqueo temporal
-const COOLDOWN_TIME_MS = 30 * 60 * 1000; // 30 minutos
-const MAX_FAILED_ATTEMPTS = 5;
+const COOLDOWN_TIME_MS = 5 * 60 * 1000; // 30 minutos
+const MAX_FAILED_ATTEMPTS = 3;
 
 let dbPool; // 👈 se definirá más abajo, luego se pasa a bookRoutes
 
