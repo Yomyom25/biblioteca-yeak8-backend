@@ -106,7 +106,7 @@ module.exports = (dbPool) => {
                 imagen: r.link_imagen
                     ? `${host}/${r.link_imagen.replace(/^\/+/, "")}`
                     : null,
-                ano: r.fecha_publicacion ? new Date(r.fecha_publicacion).getFullYear() : 'N/A',
+                ano: r.ano || "N/A",
             }));
 
             res.json(data);
@@ -254,7 +254,7 @@ module.exports = (dbPool) => {
                 const tituloClean = titulo.trim();
                 const autorClean = autor.trim();
                 const categoriaClean = categoria.trim();
-                const fechaPublicacion = `${year}-01-01`;
+                const fechaPublicacion = year;
 
                 const query = `
         INSERT INTO libros 
@@ -338,33 +338,6 @@ module.exports = (dbPool) => {
         }
     );
 
-    // ============================================
-    // 📚 OBTENER TODOS LOS LIBROS
-    // ============================================
-    router.get('/', async (req, res) => {
-        try {
-            const [rows] = await dbPool.query(`
-      SELECT 
-        id_libro,
-        titulo,
-        autor,
-        categoria,
-        DATE_FORMAT(fecha_publicacion, '%Y-%m-%d') AS fecha_publicacion,
-        estatus,
-        link_archivo,
-        link_imagen,
-        tipo,
-        ejemplares
-      FROM libros
-      ORDER BY id_libro DESC
-    `);
-
-            res.status(200).json(rows);
-        } catch (error) {
-            console.error('❌ Error al obtener libros:', error);
-            res.status(500).json({ message: 'Error al obtener la lista de libros' });
-        }
-    });
 
 
     return router;
